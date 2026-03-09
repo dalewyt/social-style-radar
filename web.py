@@ -125,6 +125,22 @@ async function doSearch() {
     
     let html = '';
     
+    // 显示调试信息（可选展开）
+    if (data.debug) {
+      html += '<details style="margin-bottom:12px;"><summary style="cursor:pointer;color:#555;font-size:12px;padding:6px;">🔍 调试信息（查看实际搜索查询）</summary>';
+      html += '<div style="background:#0d1430;padding:10px;border-radius:6px;margin-top:6px;font-size:11px;color:#7aa0e0;">';
+      html += '<div><strong>用户查询：</strong>' + data.debug.user_query + '</div>';
+      html += '<div><strong>分类：</strong>' + (data.debug.category || '全部') + '</div>';
+      if (data.debug.search_queries) {
+        html += '<div style="margin-top:6px;"><strong>实际搜索查询：</strong></div>';
+        data.debug.search_queries.forEach((q, i) => {
+          html += '<div style="margin-left:10px;color:#9fb0d1;">• ' + q + '</div>';
+        });
+      }
+      html += '<div style="margin-top:6px;"><strong>找到结果：</strong>' + (data.debug.total_results || 0) + ' 条</div>';
+      html += '</div></details>';
+    }
+    
     // 显示 LLM 提炼的具体风格
     if (data.styles && data.styles.length > 0) {
       html += '<div class="card" style="margin-bottom:20px;"><h3>✨ 发现的具体风格</h3><div class="results">';
@@ -248,18 +264,30 @@ def create_app():
         if not query:
             return jsonify({"error": "missing query"}), 400
         
-        # 构建搜索查询（根据分类添加关键词）
+        # 构建搜索查询
+        # 基础查询：用户关键词 + AI/风格相关词
+        base_terms = [query, "AI", "style", "trend", "effect"]
+        
+        # 根据分类添加特定关键词
         if category != "all" and category in CATEGORIES:
             cat_info = CATEGORIES[category]
-            # 添加分类关键词增强搜索
-            enhanced_query = f"{query} {' OR '.join(cat_info['keywords'][:3])}"
-        else:
-            enhanced_query = query
+            # 只添加 1-2 个最相关的分类关键词
+            base_terms.extend(cat_info['keywords'][:2])
         
-        # 搜索 TikTok 和 Instagram
+        enhanced_query = " ".join(base_terms)
+        
+        # 搜索 TikTok 和 Instagram（分别构建查询）
         raw_results = []
+        search_queries = []  # 记录实际查询，供调试
+        
         for platform in ["tiktok", "instagram"]:
-            platform_query = f"site:{platform}.com {enhanced_query} AI photo style trend"
+            # TikTok: 用 hashtag 和 trend 增强
+            if platform == "tiktok":
+                platform_query = f'site:tiktok.com "{query}" (AI OR filter OR effect) (trend OR viral OR popular)'
+            else:
+                platform_query = f'site:instagram.com "{query}" (AI OR filter OR style) (reels OR trending)'
+            
+            search_queries.append(platform_query)
             search_results = simple_brave_search(platform_query, max_results=8)
             
             for title, url, snippet in search_results:
@@ -271,7 +299,14 @@ def create_app():
                 })
         
         if not raw_results:
-            return jsonify({"results": [], "styles": []})
+            return jsonify({
+                "results": [], 
+                "styles": [],
+                "debug": {
+                    "user_query": query,
+                    "search_queries": search_queries
+                }
+            })
         
         # 调用 Gemini 总结出具体风格（而非通用关键词）
         gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
@@ -344,7 +379,13 @@ def create_app():
         
         return jsonify({
             "styles": styles,  # LLM 提炼的具体风格
-            "results": results_with_styles  # 原始搜索结果
+            "results": results_with_styles,  # 原始搜索结果
+            "debug": {
+                "user_query": query,
+                "category": category,
+                "search_queries": search_queries,
+                "total_results": len(raw_results)
+            }
         })
     
     return app
