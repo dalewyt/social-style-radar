@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# Local state
+state.json
+seen_urls.json
+style_history.json
+*.csv
+*.md
+!README.md
+!UPGRADE_GUIDE.md
+!DEPLOY.md
+!SEARCH_GUIDE.md
+
+# Logs
+logs/
+*.log
+
+# Style images
+style_images/
+style_crops/
+style_images_manifest.json
+
+# Secrets
+.env
+*.pem
+*.key
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo

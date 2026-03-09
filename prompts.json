@@ -1,0 +1,34 @@
+{
+  "generated_at": "2026-03-08T17:04:01.487494+00:00",
+  "llm_synthesis": true,
+  "styles": {
+    "AI动漫化身": {
+      "midjourney": "portrait photo, AI动漫化身 style, highly detailed skin texture, realistic lighting, editorial composition, 35mm lens --ar 3:4 --stylize 200",
+      "sdxl_flux": "AI动漫化身 style, photoreal portrait, cinematic light, subtle color grading, high detail, realistic skin, 35mm photography, negative prompt: lowres, blurry, distorted face"
+    },
+    "AI照片特效": {
+      "midjourney": "portrait photo, AI照片特效 style, highly detailed skin texture, realistic lighting, editorial composition, 35mm lens --ar 3:4 --stylize 200",
+      "sdxl_flux": "AI照片特效 style, photoreal portrait, cinematic light, subtle color grading, high detail, realistic skin, 35mm photography, negative prompt: lowres, blurry, distorted face"
+    },
+    "AI合成网红": {
+      "midjourney": "portrait photo, AI合成网红 style, highly detailed skin texture, realistic lighting, editorial composition, 35mm lens --ar 3:4 --stylize 200",
+      "sdxl_flux": "AI合成网红 style, photoreal portrait, cinematic light, subtle color grading, high detail, realistic skin, 35mm photography, negative prompt: lowres, blurry, distorted face"
+    },
+    "AI视频生成": {
+      "midjourney": "portrait photo, AI视频生成 style, highly detailed skin texture, realistic lighting, editorial composition, 35mm lens --ar 3:4 --stylize 200",
+      "sdxl_flux": "AI视频生成 style, photoreal portrait, cinematic light, subtle color grading, high detail, realistic skin, 35mm photography, negative prompt: lowres, blurry, distorted face"
+    },
+    "AI滤镜美颜": {
+      "midjourney": "portrait photo, AI滤镜美颜 style, highly detailed skin texture, realistic lighting, editorial composition, 35mm lens --ar 3:4 --stylize 200",
+      "sdxl_flux": "AI滤镜美颜 style, photoreal portrait, cinematic light, subtle color grading, high detail, realistic skin, 35mm photography, negative prompt: lowres, blurry, distorted face"
+    },
+    "AI版权挑战": {
+      "midjourney": "portrait photo, AI版权挑战 style, highly detailed skin texture, realistic lighting, editorial composition, 35mm lens --ar 3:4 --stylize 200",
+      "sdxl_flux": "AI版权挑战 style, photoreal portrait, cinematic light, subtle color grading, high detail, realistic skin, 35mm photography, negative prompt: lowres, blurry, distorted face"
+    },
+    "AI内容营销": {
+      "midjourney": "portrait photo, AI内容营销 style, highly detailed skin texture, realistic lighting, editorial composition, 35mm lens --ar 3:4 --stylize 200",
+      "sdxl_flux": "AI内容营销 style, photoreal portrait, cinematic light, subtle color grading, high detail, realistic skin, 35mm photography, negative prompt: lowres, blurry, distorted face"
+    }
+  }
+}

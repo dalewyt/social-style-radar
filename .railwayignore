@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.pyo
+logs/
+style_images/
+style_crops/
+seen_urls.json
+state.json
+source_links.csv
+latest_source_links.csv
+styles_report.md
+latest_styles_report.md
+style_images_manifest.json
