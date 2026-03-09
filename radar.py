@@ -3,7 +3,7 @@
 Social Style Radar — LLM-powered edition.
 
 Flow:
-  1. Brave Search: broad discovery queries on TikTok / Instagram / X
+  1. Apify TikTok Search (优先) + Brave Search: broad discovery queries on TikTok / Instagram / X
   2. Deduplicate & prioritize
   3. Gemini Flash: synthesize raw results into fresh style trends (JSON)
   4. Write report + prompts + state
@@ -24,6 +24,13 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+
+# Apify client (optional, fallback to Brave if not available)
+try:
+    from apify_client import ApifyClient
+    APIFY_AVAILABLE = True
+except ImportError:
+    APIFY_AVAILABLE = False
 
 BASE_DIR = Path(__file__).resolve().parent
 OUT_CSV = BASE_DIR / "source_links.csv"
@@ -134,7 +141,65 @@ def brave_search(query: str, max_results: int = 10) -> List[Tuple[str, str, str]
     return items
 
 
-def search_with_retry(query: str, max_results: int = 10, retries: int = 3) -> Tuple[List[Tuple[str, str, str]], bool]:
+def apify_tiktok_search(query: str, max_results: int = 20) -> List[Tuple[str, str, str]]:
+    """
+    用 Apify TikTok Scraper 搜索 TikTok（实时、高质量）
+    返回：[(title, url, snippet), ...]
+    """
+    if not APIFY_AVAILABLE:
+        return []
+    
+    api_key = os.getenv("APIFY_API_KEY", "").strip()
+    if not api_key:
+        return []
+    
+    # 从 site:tiktok.com 查询中提取真实关键词
+    cleaned_query = query.replace("site:tiktok.com", "").strip()
+    
+    try:
+        client = ApifyClient(api_key)
+        run_input = {
+            "searchQueries": [cleaned_query],
+            "resultsPerPage": min(max_results, 50),
+            "shouldDownloadVideos": False,
+        }
+        
+        print(f"[Apify] Searching TikTok: '{cleaned_query}'")
+        run = client.actor("clockworks/tiktok-scraper").call(run_input=run_input)
+        
+        results = []
+        for item in client.dataset(run["defaultDatasetId"]).iterate_items():
+            title = item.get("text", "")[:150] or f"TikTok by @{item.get('authorMeta', {}).get('name', 'unknown')}"
+            url = item.get("webVideoUrl", "")
+            snippet = item.get("text", "")[:300]
+            
+            # 添加元数据到 snippet
+            views = item.get("playCount", 0)
+            likes = item.get("diggCount", 0)
+            snippet += f" | {views} views, {likes} likes"
+            
+            results.append((title, url, snippet))
+        
+        print(f"[Apify] Found {len(results)} results")
+        return results
+    except Exception as e:
+        print(f"[Apify] Search failed: {e}")
+        return []
+
+
+def search_with_retry(query: str, max_results: int = 10, retries: int = 3, platform: str = "") -> Tuple[List[Tuple[str, str, str]], bool]:
+    """
+    搜索逻辑：
+    - TikTok: 优先用 Apify，fallback 到 Brave
+    - 其他平台: 用 Brave Search
+    """
+    # TikTok 优先用 Apify
+    if platform == "tiktok" and APIFY_AVAILABLE and os.getenv("APIFY_API_KEY"):
+        apify_results = apify_tiktok_search(query, max_results=max_results)
+        if apify_results:
+            return apify_results, False  # 成功，不限流
+    
+    # Fallback 或其他平台：用 Brave Search
     rate_limited = False
     for i in range(retries):
         try:
@@ -612,10 +677,18 @@ def run() -> None:
     rate_limited = False
     query_count = 0
 
+    # 检查 Apify 是否可用
+    apify_enabled = APIFY_AVAILABLE and os.getenv("APIFY_API_KEY")
+    if apify_enabled:
+        print("[INFO] Apify TikTok Search enabled ⚡")
+    else:
+        print("[INFO] Using Brave Search only (set APIFY_API_KEY to enable TikTok real-time search)")
+
     for platform, queries in QUERY_PLAN.items():
         for q in queries:
             query_count += 1
-            items, limited = search_with_retry(q, max_results=8, retries=3)
+            # 传递 platform 参数，让 search_with_retry 决定用 Apify 还是 Brave
+            items, limited = search_with_retry(q, max_results=8, retries=3, platform=platform)
             rate_limited = rate_limited or limited
             for title, url, snippet in items:
                 all_rows.append(SearchResult(platform=platform, query=q,
