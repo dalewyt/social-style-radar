@@ -320,45 +320,57 @@ def create_app():
         
         enhanced_query = " ".join(base_terms)
         
-        # 优先使用 Apify TikTok 搜索（实时、高质量）
+        # 搜索策略：Apify 优先，Brave 作为 fallback
         raw_results = []
         search_queries = []
         search_method = "brave"  # 默认方法
+        apify_success = False
         
-        # 尝试 Apify（仅 TikTok）
+        # === TikTok 搜索：优先 Apify ===
         apify_key = os.getenv("APIFY_API_KEY", "").strip()
         if apify_key:
             try:
-                apify_results = apify_tiktok_search(query, max_results=15)
-                if apify_results:
+                print(f"[INFO] Trying Apify TikTok search for '{query}'")
+                apify_results = apify_tiktok_search(query, max_results=20)
+                
+                # 只有结果质量好时才采用（至少 5 条）
+                if apify_results and len(apify_results) >= 5:
                     raw_results.extend(apify_results)
-                    search_queries.append(f"Apify TikTok: '{query}'")
+                    search_queries.append(f"Apify TikTok: '{query}' (实时)")
                     search_method = "apify"
+                    apify_success = True
+                    print(f"[INFO] Apify success: {len(apify_results)} results")
+                else:
+                    print(f"[WARN] Apify returned only {len(apify_results)} results, fallback to Brave")
             except Exception as e:
-                print(f"Apify failed, fallback to Brave: {e}")
+                print(f"[ERROR] Apify failed: {e}, fallback to Brave")
         
-        # Fallback 到 Brave Search（或补充 Instagram）
-        for platform in ["tiktok", "instagram"]:
-            # 如果 Apify 已成功获取 TikTok 数据，跳过 Brave TikTok
-            if platform == "tiktok" and search_method == "apify":
-                continue
-            
-            # TikTok: 用 hashtag 和 trend 增强
-            if platform == "tiktok":
-                platform_query = f'site:tiktok.com "{query}" (AI OR filter OR effect) (trend OR viral OR popular)'
-            else:
-                platform_query = f'site:instagram.com "{query}" (AI OR filter OR style) (reels OR trending)'
-            
-            search_queries.append(platform_query)
-            search_results = simple_brave_search(platform_query, max_results=8)
+        # === TikTok Fallback：Brave Search ===
+        if not apify_success:
+            platform_query = f'site:tiktok.com "{query}" (AI OR filter OR effect) (trend OR viral OR popular)'
+            search_queries.append(f"Brave TikTok: {platform_query}")
+            search_results = simple_brave_search(platform_query, max_results=10)
             
             for title, url, snippet in search_results:
                 raw_results.append({
-                    "platform": platform.capitalize(),
+                    "platform": "TikTok",
                     "title": title,
                     "url": url,
                     "snippet": snippet,
                 })
+        
+        # === Instagram：始终用 Brave ===
+        platform_query = f'site:instagram.com "{query}" (AI OR filter OR style) (reels OR trending)'
+        search_queries.append(f"Brave Instagram: {platform_query}")
+        search_results = simple_brave_search(platform_query, max_results=8)
+        
+        for title, url, snippet in search_results:
+            raw_results.append({
+                "platform": "Instagram",
+                "title": title,
+                "url": url,
+                "snippet": snippet,
+            })
         
         if not raw_results:
             return jsonify({
