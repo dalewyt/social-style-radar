@@ -113,7 +113,7 @@ async function doSearch() {
   if (!query) { alert('请输入搜索关键词'); return; }
   
   const resultsDiv = document.getElementById('results');
-  resultsDiv.innerHTML = '<div class="loading">搜索中...</div>';
+  resultsDiv.innerHTML = '<div class="loading">🔍 搜索中... 正在分析热门风格</div>';
   
   try {
     const resp = await fetch('/api/search', {
@@ -123,21 +123,48 @@ async function doSearch() {
     });
     const data = await resp.json();
     
-    if (data.results && data.results.length > 0) {
-      resultsDiv.innerHTML = '<div class="results">' + data.results.map(r => `
-        <div class="result-card">
-          <div class="result-title">${r.title}</div>
-          <div class="result-snippet">${r.snippet}</div>
-          <div class="result-meta">
-            <span class="tag">${r.platform}</span>
-            ${r.category ? '<span class="tag">' + r.category + '</span>' : ''}
-            <a href="${r.url}" target="_blank" style="color:#60a5fa;font-size:12px;">查看原文</a>
+    let html = '';
+    
+    // 显示 LLM 提炼的具体风格
+    if (data.styles && data.styles.length > 0) {
+      html += '<div class="card" style="margin-bottom:20px;"><h3>✨ 发现的具体风格</h3><div class="results">';
+      data.styles.forEach((s, i) => {
+        html += `
+          <div class="result-card" style="border-left:3px solid #4b7de0;">
+            <div style="font-size:11px;color:#7aa0e0;margin-bottom:4px;">风格 ${i+1}</div>
+            <div class="result-title" style="color:#6ea8fe;">${s.name}</div>
+            <div class="result-snippet">${s.description}</div>
           </div>
-        </div>
-      `).join('') + '</div>';
-    } else {
-      resultsDiv.innerHTML = '<div class="card"><p style="color:#7aa0e0;">未找到相关结果</p></div>';
+        `;
+      });
+      html += '</div></div>';
     }
+    
+    // 显示原始搜索结果（折叠）
+    if (data.results && data.results.length > 0) {
+      html += '<details style="margin-top:20px;"><summary style="cursor:pointer;color:#7aa0e0;padding:10px;background:#121a31;border-radius:8px;">📋 查看原始搜索结果 (' + data.results.length + ' 条)</summary>';
+      html += '<div class="results" style="margin-top:12px;">';
+      data.results.forEach(r => {
+        html += `
+          <div class="result-card" style="opacity:0.8;">
+            <div class="result-title" style="font-size:13px;">${r.title}</div>
+            <div class="result-snippet" style="font-size:12px;">${r.snippet}</div>
+            <div class="result-meta">
+              <span class="tag">${r.platform}</span>
+              ${r.category ? '<span class="tag">' + r.category + '</span>' : ''}
+              <a href="${r.url}" target="_blank" style="color:#60a5fa;font-size:11px;">查看原文</a>
+            </div>
+          </div>
+        `;
+      });
+      html += '</div></details>';
+    }
+    
+    if (!html) {
+      html = '<div class="card"><p style="color:#7aa0e0;">未找到相关结果</p></div>';
+    }
+    
+    resultsDiv.innerHTML = html;
   } catch (e) {
     resultsDiv.innerHTML = '<div class="card"><p style="color:#ff9a9a;">搜索失败: ' + e.message + '</p></div>';
   }
@@ -230,29 +257,95 @@ def create_app():
             enhanced_query = query
         
         # 搜索 TikTok 和 Instagram
-        results = []
+        raw_results = []
         for platform in ["tiktok", "instagram"]:
-            platform_query = f"site:{platform}.com {enhanced_query} AI photo style"
-            raw_results = simple_brave_search(platform_query, max_results=5)
+            platform_query = f"site:{platform}.com {enhanced_query} AI photo style trend"
+            search_results = simple_brave_search(platform_query, max_results=8)
             
-            for title, url, snippet in raw_results:
-                # 简单分类（基于关键词匹配）
-                detected_cat = None
-                snippet_lower = f"{title} {snippet}".lower()
-                for cat_id, cat_info in CATEGORIES.items():
-                    if any(kw.lower() in snippet_lower for kw in cat_info["keywords"]):
-                        detected_cat = cat_info["name"]
-                        break
-                
-                results.append({
+            for title, url, snippet in search_results:
+                raw_results.append({
                     "platform": platform.capitalize(),
                     "title": title,
                     "url": url,
-                    "snippet": snippet[:200] + "..." if len(snippet) > 200 else snippet,
-                    "category": detected_cat,
+                    "snippet": snippet,
                 })
         
-        return jsonify({"results": results})
+        if not raw_results:
+            return jsonify({"results": [], "styles": []})
+        
+        # 调用 Gemini 总结出具体风格（而非通用关键词）
+        gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
+        styles = []
+        
+        if gemini_key and len(raw_results) >= 3:
+            # 构建 LLM prompt
+            snippets_text = "\n".join([
+                f"[{i+1}] {r['title']}: {r['snippet'][:150]}"
+                for i, r in enumerate(raw_results[:10])
+            ])
+            
+            llm_prompt = f"""基于以下搜索结果，提炼出 3-5 个**具体的视觉风格特征**。
+
+用户搜索：{query}
+分类：{CATEGORIES.get(category, {}).get('name', '全部') if category != 'all' else '全部'}
+
+搜索结果：
+{snippets_text}
+
+要求：
+1. 提炼**具体的风格名称**（例如："黑白胶片质感证件照"、"复古港风写真"），而非通用词（❌"AI headshot"、❌"portrait style"）
+2. 每个风格包含：风格名（5-10字）+ 视觉特征描述（20-40字）
+3. 只输出 JSON 格式，无其他文字
+
+输出格式：
+[
+  {{"name": "黑白胶片证件照", "description": "高对比度黑白色调，胶片颗粒质感，正式构图，职业氛围"}},
+  {{"name": "复古港风写真", "description": "80年代港片色调，柔和光晕，复古妆容，怀旧滤镜效果"}}
+]"""
+            
+            try:
+                import urllib.request
+                import json as json_lib
+                
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gemini_key}"
+                payload = {
+                    "contents": [{"parts": [{"text": llm_prompt}]}],
+                    "generationConfig": {"temperature": 0.3}
+                }
+                req = urllib.request.Request(
+                    url,
+                    data=json_lib.dumps(payload).encode("utf-8"),
+                    headers={"Content-Type": "application/json"}
+                )
+                
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    llm_data = json_lib.loads(resp.read().decode("utf-8"))
+                    text = (((llm_data.get("candidates") or [{}])[0].get("content") or {}).get("parts") or [{}])[0].get("text", "")
+                    
+                    # 解析 JSON
+                    import re
+                    json_match = re.search(r'\[.*\]', text, re.DOTALL)
+                    if json_match:
+                        styles = json_lib.loads(json_match.group(0))
+            except Exception as e:
+                print(f"Gemini summarization failed: {e}")
+        
+        # 关联原始结果到风格
+        results_with_styles = []
+        for r in raw_results[:10]:
+            detected_cat = detect_category(f"{r['title']} {r['snippet']}")
+            results_with_styles.append({
+                "platform": r["platform"],
+                "title": r["title"],
+                "url": r["url"],
+                "snippet": r["snippet"][:200] + "..." if len(r["snippet"]) > 200 else r["snippet"],
+                "category": CATEGORIES.get(detected_cat, {}).get("name") if detected_cat else None,
+            })
+        
+        return jsonify({
+            "styles": styles,  # LLM 提炼的具体风格
+            "results": results_with_styles  # 原始搜索结果
+        })
     
     return app
 
