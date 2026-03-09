@@ -18,7 +18,46 @@ from categories import CATEGORIES, detect_category
 
 BASE_DIR = Path(__file__).resolve().parent
 
-# 简化的搜索函数（避免导入 radar.py 的复杂依赖）
+# Apify TikTok 搜索
+def apify_tiktok_search(query: str, max_results: int = 20):
+    """用 Apify 搜索 TikTok"""
+    api_key = os.getenv("APIFY_API_KEY", "").strip()
+    if not api_key:
+        return []
+    
+    try:
+        from apify_client import ApifyClient
+        
+        client = ApifyClient(api_key)
+        run_input = {
+            "searchQueries": [query],
+            "resultsPerPage": min(max_results, 50),
+            "shouldDownloadVideos": False,
+        }
+        
+        # 调用 Apify actor（异步运行，等待完成）
+        run = client.actor("clockworks/tiktok-scraper").call(run_input=run_input)
+        
+        results = []
+        for item in client.dataset(run["defaultDatasetId"]).iterate_items():
+            results.append({
+                "platform": "TikTok",
+                "title": item.get("text", "")[:100] or f"TikTok video by @{item.get('authorMeta', {}).get('name', 'unknown')}",
+                "url": item.get("webVideoUrl", ""),
+                "snippet": item.get("text", "")[:300],
+                "stats": {
+                    "views": item.get("playCount", 0),
+                    "likes": item.get("diggCount", 0),
+                    "shares": item.get("shareCount", 0),
+                    "comments": item.get("commentCount", 0),
+                }
+            })
+        return results
+    except Exception as e:
+        print(f"Apify TikTok search failed: {e}")
+        return []
+
+# 简化的搜索函数（Brave Search fallback）
 def simple_brave_search(query: str, max_results: int = 10):
     """简化版 Brave 搜索"""
     import urllib.request
@@ -127,10 +166,15 @@ async function doSearch() {
     
     // 显示调试信息（可选展开）
     if (data.debug) {
-      html += '<details style="margin-bottom:12px;"><summary style="cursor:pointer;color:#555;font-size:12px;padding:6px;">🔍 调试信息（查看实际搜索查询）</summary>';
+      const methodBadge = data.debug.search_method === 'apify' 
+        ? '<span style="background:#2d6be4;color:#fff;padding:2px 6px;border-radius:4px;font-size:10px;margin-left:6px;">Apify ⚡</span>'
+        : '<span style="background:#555;color:#ccc;padding:2px 6px;border-radius:4px;font-size:10px;margin-left:6px;">Brave</span>';
+      
+      html += '<details style="margin-bottom:12px;"><summary style="cursor:pointer;color:#555;font-size:12px;padding:6px;">🔍 调试信息（查看实际搜索查询）' + methodBadge + '</summary>';
       html += '<div style="background:#0d1430;padding:10px;border-radius:6px;margin-top:6px;font-size:11px;color:#7aa0e0;">';
       html += '<div><strong>用户查询：</strong>' + data.debug.user_query + '</div>';
       html += '<div><strong>分类：</strong>' + (data.debug.category || '全部') + '</div>';
+      html += '<div><strong>搜索方法：</strong>' + (data.debug.search_method === 'apify' ? 'Apify TikTok API（实时）' : 'Brave Search（网页索引）') + '</div>';
       if (data.debug.search_queries) {
         html += '<div style="margin-top:6px;"><strong>实际搜索查询：</strong></div>';
         data.debug.search_queries.forEach((q, i) => {
@@ -276,11 +320,29 @@ def create_app():
         
         enhanced_query = " ".join(base_terms)
         
-        # 搜索 TikTok 和 Instagram（分别构建查询）
+        # 优先使用 Apify TikTok 搜索（实时、高质量）
         raw_results = []
-        search_queries = []  # 记录实际查询，供调试
+        search_queries = []
+        search_method = "brave"  # 默认方法
         
+        # 尝试 Apify（仅 TikTok）
+        apify_key = os.getenv("APIFY_API_KEY", "").strip()
+        if apify_key:
+            try:
+                apify_results = apify_tiktok_search(query, max_results=15)
+                if apify_results:
+                    raw_results.extend(apify_results)
+                    search_queries.append(f"Apify TikTok: '{query}'")
+                    search_method = "apify"
+            except Exception as e:
+                print(f"Apify failed, fallback to Brave: {e}")
+        
+        # Fallback 到 Brave Search（或补充 Instagram）
         for platform in ["tiktok", "instagram"]:
+            # 如果 Apify 已成功获取 TikTok 数据，跳过 Brave TikTok
+            if platform == "tiktok" and search_method == "apify":
+                continue
+            
             # TikTok: 用 hashtag 和 trend 增强
             if platform == "tiktok":
                 platform_query = f'site:tiktok.com "{query}" (AI OR filter OR effect) (trend OR viral OR popular)'
@@ -383,6 +445,7 @@ def create_app():
             "debug": {
                 "user_query": query,
                 "category": category,
+                "search_method": search_method,
                 "search_queries": search_queries,
                 "total_results": len(raw_results)
             }
